@@ -2,8 +2,17 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ernährungs-Tracker</title>
+<meta name="description" content="Schnell und einfach Mahlzeiten tracken, mit Export für den Ernährungs-Chat.">
+<meta name="theme-color" content="#2f6b4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ernährung">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root {
     --bg: #f7f5f2;
@@ -945,6 +954,13 @@
     showToast('Alle Daten gelöscht');
     await loadDay(dateInput.value);
   };
+
+  // --- PWA: Service Worker registrieren ---
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
 
 })();
 </script>
