@@ -267,6 +267,46 @@
     grid-template-columns: repeat(4,1fr);
     gap: 8px;
   }
+
+  .settings-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .settings-card h3 {
+    font-size: 0.95rem;
+    margin: 0 0 6px;
+  }
+  .settings-card p {
+    font-size: 0.82rem;
+    color: var(--sub);
+    margin: 0 0 12px;
+    line-height: 1.4;
+  }
+  .settings-card button {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    font-size: 0.9rem;
+    color: var(--ink);
+  }
+  .settings-card button.primary {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .settings-card button.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .settings-card input[type="file"] {
+    display: none;
+  }
 </style>
 </head>
 <body>
@@ -281,6 +321,7 @@
   <div class="tabs">
     <button class="tab-btn active" id="tabToday">Heute</button>
     <button class="tab-btn" id="tabStats">Statistik</button>
+    <button class="tab-btn" id="tabSettings">Einstellungen</button>
   </div>
 </header>
 
@@ -348,6 +389,25 @@
         <div class="lbl" style="margin-top:6px;">Letzte <span id="daysCount">0</span> Tage mit Einträgen</div>
       </div>
       <div id="statsList"></div>
+    </div>
+  </div>
+
+  <div id="settingsView" style="display:none;">
+    <div class="settings-card">
+      <h3>Backup exportieren</h3>
+      <p>Speichert alle Tage und Favoriten als Datei auf deinem Gerät. Praktisch als Sicherung – z.B. bevor Safari auf dem iPhone lange nicht genutzte Website-Daten löscht.</p>
+      <button class="primary" id="backupExportBtn">Backup-Datei herunterladen</button>
+    </div>
+    <div class="settings-card">
+      <h3>Backup einlesen</h3>
+      <p>Liest eine zuvor exportierte Backup-Datei wieder ein und stellt alle Tage und Favoriten wieder her. Bestehende Einträge mit gleichem Datum werden dabei überschrieben.</p>
+      <button id="backupImportBtn">Backup-Datei auswählen</button>
+      <input type="file" id="backupFileInput" accept="application/json,.json">
+    </div>
+    <div class="settings-card">
+      <h3>Alle Daten löschen</h3>
+      <p>Entfernt alle Tage und Favoriten unwiderruflich von diesem Gerät. Vorher am besten ein Backup exportieren.</p>
+      <button class="danger" id="wipeAllBtn">Alle Daten auf diesem Gerät löschen</button>
     </div>
   </div>
 </main>
@@ -708,24 +768,40 @@
   // --- Tabs & Statistics ---
   const tabToday = document.getElementById('tabToday');
   const tabStats = document.getElementById('tabStats');
+  const tabSettings = document.getElementById('tabSettings');
   const statsView = document.getElementById('statsView');
+  const settingsView = document.getElementById('settingsView');
   const header_dateRow = document.querySelector('.date-row');
 
   tabToday.onclick = () => {
     tabToday.classList.add('active');
     tabStats.classList.remove('active');
+    tabSettings.classList.remove('active');
     header_dateRow.style.display = 'flex';
     appBody.style.display = 'block';
     statsView.style.display = 'none';
+    settingsView.style.display = 'none';
   };
 
   tabStats.onclick = async () => {
     tabStats.classList.add('active');
     tabToday.classList.remove('active');
+    tabSettings.classList.remove('active');
     header_dateRow.style.display = 'none';
     appBody.style.display = 'none';
     statsView.style.display = 'block';
+    settingsView.style.display = 'none';
     await loadStats();
+  };
+
+  tabSettings.onclick = () => {
+    tabSettings.classList.add('active');
+    tabToday.classList.remove('active');
+    tabStats.classList.remove('active');
+    header_dateRow.style.display = 'none';
+    appBody.style.display = 'none';
+    statsView.style.display = 'none';
+    settingsView.style.display = 'block';
   };
 
   async function loadStats() {
@@ -791,6 +867,84 @@
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
   }
+
+  // --- Settings: Backup export / import / wipe ---
+  document.getElementById('backupExportBtn').onclick = async () => {
+    const listRes = await window.storage.list('day:');
+    const keys = (listRes && listRes.keys) ? listRes.keys : [];
+    const days = {};
+    for (const k of keys) {
+      const res = await window.storage.get(k);
+      days[k.replace('day:', '')] = res && res.value ? JSON.parse(res.value) : [];
+    }
+    const favorites = await loadFavorites();
+
+    const backup = {
+      type: 'ernaehrungstracker-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      days,
+      favorites
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ernaehrungstracker-backup-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Backup heruntergeladen ✓');
+  };
+
+  document.getElementById('backupImportBtn').onclick = () => {
+    document.getElementById('backupFileInput').click();
+  };
+
+  document.getElementById('backupFileInput').onchange = async (ev) => {
+    const file = ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+
+    let backup;
+    try {
+      const text = await file.text();
+      backup = JSON.parse(text);
+    } catch (e) {
+      showToast('Datei konnte nicht gelesen werden');
+      return;
+    }
+
+    if (!backup || typeof backup.days !== 'object') {
+      showToast('Ungültige Backup-Datei');
+      return;
+    }
+
+    const dayCount = Object.keys(backup.days).length;
+    if (!confirm(`${dayCount} Tag(e) aus dem Backup einlesen? Bestehende Einträge mit gleichem Datum werden überschrieben.`)) return;
+
+    for (const [date, entries] of Object.entries(backup.days)) {
+      await saveDay(date, entries);
+    }
+    if (Array.isArray(backup.favorites)) {
+      await saveFavorites(backup.favorites);
+    }
+
+    showToast('Backup eingelesen ✓');
+    await loadDay(dateInput.value);
+  };
+
+  document.getElementById('wipeAllBtn').onclick = async () => {
+    if (!confirm('Wirklich ALLE Tage und Favoriten auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden.')) return;
+    const listRes = await window.storage.list('day:');
+    const keys = (listRes && listRes.keys) ? listRes.keys : [];
+    keys.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem(FAVORITES_KEY);
+    showToast('Alle Daten gelöscht');
+    await loadDay(dateInput.value);
+  };
 
 })();
 </script>
